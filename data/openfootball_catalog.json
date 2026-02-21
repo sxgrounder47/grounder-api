@@ -1,1 +1,127 @@
-
+[
+  {
+    "country": "France",
+    "country_code": "FR",
+    "league": "Ligue 1",
+    "league_code": "FR-D1",
+    "division_level": 1,
+    "teams": [
+      {"name": "Paris Saint-Germain", "shortName": "PSG"},
+      {"name": "Olympique de Marseille", "shortName": "OM"},
+      {"name": "Olympique Lyonnais", "shortName": "OL"},
+      {"name": "AS Monaco", "shortName": "ASM"}
+    ]
+  },
+  {
+    "country": "France",
+    "country_code": "FR",
+    "league": "Ligue 2",
+    "league_code": "FR-D2",
+    "division_level": 2,
+    "teams": [
+      {"name": "Saint-Étienne", "shortName": "ASSE"},
+      {"name": "SM Caen", "shortName": "Caen"},
+      {"name": "FC Metz", "shortName": "Metz"}
+    ]
+  },
+  {
+    "country": "England",
+    "country_code": "EN",
+    "league": "Premier League",
+    "league_code": "EN-D1",
+    "division_level": 1,
+    "teams": [
+      {"name": "Manchester City", "shortName": "City"},
+      {"name": "Manchester United", "shortName": "United"},
+      {"name": "Liverpool", "shortName": "LFC"},
+      {"name": "Arsenal", "shortName": "ARS"},
+      {"name": "Chelsea", "shortName": "CHE"}
+    ]
+  },
+  {
+    "country": "England",
+    "country_code": "EN",
+    "league": "Championship",
+    "league_code": "EN-D2",
+    "division_level": 2,
+    "teams": [
+      {"name": "Leeds United", "shortName": "Leeds"},
+      {"name": "Norwich City", "shortName": "Norwich"},
+      {"name": "Sunderland", "shortName": "SFC"}
+    ]
+  },
+  {
+    "country": "Spain",
+    "country_code": "ES",
+    "league": "Primera Division",
+    "league_code": "ES-D1",
+    "division_level": 1,
+    "teams": [
+      {"name": "Real Madrid", "shortName": "RM"},
+      {"name": "FC Barcelona", "shortName": "Barça"},
+      {"name": "Atlético Madrid", "shortName": "ATM"},
+      {"name": "Sevilla FC", "shortName": "Sevilla"}
+    ]
+  },
+  {
+    "country": "Germany",
+    "country_code": "DE",
+    "league": "Bundesliga",
+    "league_code": "DE-D1",
+    "division_level": 1,
+    "teams": [
+      {"name": "Bayern Munich", "shortName": "Bayern"},
+      {"name": "Borussia Dortmund", "shortName": "BVB"},
+      {"name": "RB Leipzig", "shortName": "RBL"}
+    ]
+  },
+  {
+    "country": "Italy",
+    "country_code": "IT",
+    "league": "Serie A",
+    "league_code": "IT-D1",
+    "division_level": 1,
+    "teams": [
+      {"name": "Juventus", "shortName": "Juve"},
+      {"name": "Inter", "shortName": "Inter"},
+      {"name": "AC Milan", "shortName": "Milan"},
+      {"name": "AS Roma", "shortName": "Roma"}
+    ]
+  },
+  {
+    "country": "Brazil",
+    "country_code": "BR",
+    "league": "Serie A",
+    "league_code": "BR-D1",
+    "division_level": 1,
+    "teams": [
+      {"name": "Flamengo", "shortName": "FLA"},
+      {"name": "Palmeiras", "shortName": "PAL"},
+      {"name": "Corinthians", "shortName": "COR"}
+    ]
+  },
+  {
+    "country": "Portugal",
+    "country_code": "PT",
+    "league": "Primeira Liga",
+    "league_code": "PT-D1",
+    "division_level": 1,
+    "teams": [
+      {"name": "Benfica", "shortName": "SLB"},
+      {"name": "Porto", "shortName": "FCP"},
+      {"name": "Sporting CP", "shortName": "SCP"}
+    ]
+  },
+  {
+    "country": "Netherlands",
+    "country_code": "NL",
+    "league": "Eredivisie",
+    "league_code": "NL-D1",
+    "division_level": 1,
+    "teams": [
+      {"name": "Ajax", "shortName": "Ajax"},
+      {"name": "PSV Eindhoven", "shortName": "PSV"},
+      {"name": "Feyenoord", "shortName": "FEY"}
+    ]
+  }
+]
