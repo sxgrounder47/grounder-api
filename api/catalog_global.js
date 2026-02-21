@@ -93,16 +93,34 @@ export default async function handler(req, res) {
         ? await getTSDB()
         : [];
 
-    // ---------------- DEDUP (priorité football-data) ----------------
-    const fdNames = new Set(
-      fdData.map((x) => (x.name || "").toLowerCase())
-    );
+   // -------- SMART DEDUP --------
 
-    const cleanTsdb = tsdbData.filter(
-      (x) => !fdNames.has((x.name || "").toLowerCase())
-    );
+// on crée une liste des noms FD normalisés
+const fdNames = fdData.map((x) => (x.name || "").toLowerCase());
 
-    let merged = [...fdData, ...cleanTsdb];
+// fonction simple de normalisation
+function normalize(str) {
+  return (str || "")
+    .toLowerCase()
+    .replace(/league/g, "")
+    .replace(/fc/g, "")
+    .replace(/serie/g, "")
+    .replace(/liga/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+// on garde TSDB seulement si aucun nom FD ne correspond "à peu près"
+const cleanTsdb = tsdbData.filter((tsdb) => {
+  const tsName = normalize(tsdb.name);
+
+  return !fdNames.some((fdName) => {
+    const fdNorm = normalize(fdName);
+    return tsName.includes(fdNorm) || fdNorm.includes(tsName);
+  });
+});
+
+let merged = [...fdData, ...cleanTsdb];
 
     // ---------------- FILTERS ----------------
     if (country) {
