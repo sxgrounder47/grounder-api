@@ -4,13 +4,15 @@ module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
+  const buildTag = "LEAGUES_GLOBAL_V2";
+
   try {
-    const limit = Math.min(Number(req.query.limit || 300), 2000); // sécurité
-    const country = (req.query.country || "").trim(); // optionnel: "France", "England", etc.
+    const limit = Math.min(Number(req.query.limit || 300), 2000);
+    const country = (req.query.country || "").trim();
 
     const [fd, tsdb] = await Promise.allSettled([
       fetchFDCompetitions(),
-      fetchTSDBLeaguesWorld({ country, limit }),
+      fetchTSDBLeagues({ country, limit })
     ]);
 
     const fdItems = fd.status === "fulfilled" ? fd.value : [];
@@ -19,97 +21,117 @@ module.exports = async (req, res) => {
     const merged = dedupeLeagues([...fdItems, ...tsdbItems]);
 
     return res.status(200).json({
+      buildTag,
       count: merged.length,
-      sources: { footballData: fdItems.length, theSportsDB: tsdbItems.length },
-      leagues: merged,
+      sources: {
+        footballData: fdItems.length,
+        theSportsDB: tsdbItems.length
+      },
+      leagues: merged
     });
+
   } catch (e) {
-    return res.status(500).json({ error: "Server error", message: String(e) });
+    return res.status(500).json({
+      buildTag,
+      error: "Server error",
+      message: String(e)
+    });
   }
 };
 
-// ---------- FOOTBALL-DATA ----------
+/* ---------------- FOOTBALL-DATA ---------------- */
+
 async function fetchFDCompetitions() {
   const token = process.env.FOOTBALL_DATA_API_KEY;
   if (!token) return [];
+
   const r = await fetch("https://api.football-data.org/v4/competitions", {
-    headers: { "X-Auth-Token": token },
+    headers: { "X-Auth-Token": token }
   });
+
   if (!r.ok) return [];
+
   const data = await r.json();
 
-  return (data.competitions || []).map((c) => ({
+  return (data.competitions || []).map(c => ({
     id: `FD:${c.id}`,
     source: "football-data",
     name: c.name || null,
     country: c.area?.name || null,
     type: c.type || null,
-    code: c.code || null,
+    code: c.code || null
   }));
 }
 
-// ---------- THESPORTSDB (WORLD) ----------
-async function fetchTSDBLeaguesWorld({ country, limit }) {
+/* ---------------- THESPORTSDB ---------------- */
+
+async function fetchTSDBLeagues({ country, limit }) {
   const key = process.env.THESPORTSDB_API_KEY || "1";
 
-  // Si un pays est demandé -> direct
   if (country) {
-    const leagues = await tsdbLeaguesByCountry(key, country);
+    const leagues = await tsdbByCountry(key, country);
     return leagues.slice(0, limit);
   }
 
-  // Sinon, on récupère la liste des pays, puis on récupère les ligues par pays (plus fiable)
-  const countries = await tsdbCountries(key);
+  const countries = await fetchCountries(key);
 
   const out = [];
+
   for (const c of countries) {
-    const leagues = await tsdbLeaguesByCountry(key, c);
+    const leagues = await tsdbByCountry(key, c);
     for (const l of leagues) {
       out.push(l);
       if (out.length >= limit) return out;
     }
   }
+
   return out;
 }
 
-async function tsdbCountries(key) {
-  const r = await fetch(`https://www.thesportsdb.com/api/v1/json/${key}/all_countries.php`);
+async function fetchCountries(key) {
+  const r = await fetch(
+    `https://www.thesportsdb.com/api/v1/json/${key}/all_countries.php`
+  );
+
   if (!r.ok) return [];
+
   const data = await r.json();
   const countries = data.countries || [];
-  // on renvoie juste les noms de pays
+
   return countries
-    .map((x) => x.name)
+    .map(x => x.name)
     .filter(Boolean);
 }
 
-async function tsdbLeaguesByCountry(key, country) {
+async function tsdbByCountry(key, country) {
   const r = await fetch(
-    `https://www.thesportsdb.com/api/v1/json/${key}/search_all_leagues.php?c=${encodeURIComponent(
-      country
-    )}&s=Soccer`
+    `https://www.thesportsdb.com/api/v1/json/${key}/search_all_leagues.php?c=${encodeURIComponent(country)}&s=Soccer`
   );
+
   if (!r.ok) return [];
 
   const data = await r.json();
   const leagues = data.countrys || [];
-  return leagues
-    .filter((l) => (l.strSport || "").toLowerCase() === "soccer")
-    .map((l) => ({
-      id: `TSDB:${l.idLeague}`,
-      source: "thesportsdb",
-      name: l.strLeague || null,
-      country: l.strCountry || country || null,
-      type: "LEAGUE",
-      code: null,
-    }));
+
+  return leagues.map(l => ({
+    id: `TSDB:${l.idLeague}`,
+    source: "thesportsdb",
+    name: l.strLeague || null,
+    country: l.strCountry || country,
+    type: "LEAGUE",
+    code: null
+  }));
 }
+
+/* ---------------- DEDUPE ---------------- */
 
 function dedupeLeagues(items) {
   const map = new Map();
+
   for (const x of items) {
     const key = `${(x.country || "").toLowerCase()}|${(x.name || "").toLowerCase()}`;
     if (!map.has(key)) map.set(key, x);
   }
+
   return Array.from(map.values());
 }
