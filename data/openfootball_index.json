@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "sources": {
+    "openfootball": {
+      "provider": "openfootball",
+      "note": "Index of leagues/cups to import as JSON files"
+    }
+  },
+  "competitions": [
+    {"id":"FR-L1","type":"league","country":"France","name":"Ligue 1","level":1,"season":"2025-26"},
+    {"id":"FR-L2","type":"league","country":"France","name":"Ligue 2","level":2,"season":"2025-26"},
+    {"id":"FR-CDF","type":"cup","country":"France","name":"Coupe de France","level":0,"season":"2025-26"},
+
+    {"id":"EN-PL","type":"league","country":"England","name":"Premier League","level":1,"season":"2025-26"},
+    {"id":"EN-CH","type":"league","country":"England","name":"Championship","level":2,"season":"2025-26"},
+    {"id":"EN-FAC","type":"cup","country":"England","name":"FA Cup","level":0,"season":"2025-26"},
+    {"id":"EN-EFL","type":"cup","country":"England","name":"EFL Cup","level":0,"season":"2025-26"},
+
+    {"id":"ES-LL","type":"league","country":"Spain","name":"La Liga","level":1,"season":"2025-26"},
+    {"id":"ES-CDR","type":"cup","country":"Spain","name":"Copa del Rey","level":0,"season":"2025-26"},
+
+    {"id":"DE-BL","type":"league","country":"Germany","name":"Bundesliga","level":1,"season":"2025-26"},
+    {"id":"DE-POK","type":"cup","country":"Germany","name":"DFB-Pokal","level":0,"season":"2025-26"},
+
+    {"id":"IT-SA","type":"league","country":"Italy","name":"Serie A","level":1,"season":"2025-26"},
+    {"id":"IT-CI","type":"cup","country":"Italy","name":"Coppa Italia","level":0,"season":"2025-26"},
+
+    {"id":"UEFA-UCL","type":"cup","country":"Europe","name":"UEFA Champions League","level":0,"season":"2025-26"},
+    {"id":"UEFA-UEL","type":"cup","country":"Europe","name":"UEFA Europa League","level":0,"season":"2025-26"},
+    {"id":"UEFA-UECL","type":"cup","country":"Europe","name":"UEFA Conference League","level":0,"season":"2025-26"}
+  ]
+}
