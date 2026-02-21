@@ -1,139 +1,143 @@
 // api/catalog_global.js
+
 export default async function handler(req, res) {
   try {
-    const source = (req.query.source || "all").toLowerCase(); // all | football-data | thesportsdb
+    const source = (req.query.source || "all").toLowerCase();
     const country = req.query.country ? String(req.query.country).toLowerCase() : null;
-    const type = req.query.type ? String(req.query.type).toUpperCase() : null; // LEAGUE | CUP
+    const type = req.query.type ? String(req.query.type).toUpperCase() : null;
 
     const fdKey = process.env.FOOTBALL_DATA_API_KEY;
     const tsdbKey = process.env.THESPORTSDB_API_KEY;
 
-    // petit helper fetch safe
-    async function safeFetchJson(url, opts = {}) {
-      const r = await fetch(url, opts);
+    async function safeFetch(url, options = {}) {
+      const r = await fetch(url, options);
       const text = await r.text();
       let data;
-      try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { raw: text };
+      }
       if (!r.ok) {
-        const err = new Error(`HTTP ${r.status} on ${url}`);
-        err.details = data;
-        throw err;
+        throw new Error(`HTTP ${r.status} - ${url}`);
       }
       return data;
     }
 
-    // ---------- Football-Data.org ----------
-    async function getFootballDataCompetitions() {
-      if (!fdKey) return { count: 0, items: [], warning: "FOOTBALL_DATA_API_KEY missing" };
+    // ---------------- FOOTBALL-DATA ----------------
+    async function getFootballData() {
+      if (!fdKey) return [];
 
-      // endpoint standard: /v4/competitions
-      const data = await safeFetchJson("https://api.football-data.org/v4/competitions", {
-        headers: { "X-Auth-Token": fdKey },
-      });
+      const data = await safeFetch(
+        "https://api.football-data.org/v4/competitions",
+        { headers: { "X-Auth-Token": fdKey } }
+      );
 
-      const competitions = Array.isArray(data?.competitions) ? data.competitions : [];
+      const competitions = Array.isArray(data?.competitions)
+        ? data.competitions
+        : [];
 
-      const items = competitions.map((c) => ({
+      return competitions.map((c) => ({
         id: `FD:${c.id}`,
         source: "football-data",
         name: c.name || null,
         code: c.code || null,
-        type: (c.type || "LEAGUE").toUpperCase(), // LEAGUE | CUP
+        type: (c.type || "LEAGUE").toUpperCase(),
         country: c.area?.name || null,
         countryCode: c.area?.code || null,
         emblem: c.emblem || null,
         seasonStart: c.currentSeason?.startDate || null,
         seasonEnd: c.currentSeason?.endDate || null,
       }));
-
-      return { count: items.length, items };
     }
 
-    // ---------- TheSportsDB ----------
-    async function getTSDBLeagues() {
-      if (!tsdbKey) return { count: 0, items: [], warning: "THESPORTSDB_API_KEY missing" };
+    // ---------------- THESPORTSDB ----------------
+    async function getTSDB() {
+      if (!tsdbKey) return [];
 
-      // all_leagues.php renvoie une liste énorme (ligues, cups, etc.)
-      const data = await safeFetchJson(
-        `https://www.thesportsdb.com/api/v1/json/${encodeURIComponent(tsdbKey)}/all_leagues.php`
+      const data = await safeFetch(
+        `https://www.thesportsdb.com/api/v1/json/${encodeURIComponent(
+          tsdbKey
+        )}/all_leagues.php`
       );
 
       const leagues = Array.isArray(data?.leagues) ? data.leagues : [];
 
-      const items = leagues.map((l) => ({
-        id: `TSDB:${l.idLeague}`,
-        source: "thesportsdb",
-        name: l.strLeague || null,
-        // TSDB a strSport (on veut que "Soccer")
-        sport: l.strSport || null,
-        // TSDB a parfois "strLeagueAlternate"
-        altName: l.strLeagueAlternate || null,
-        // Country pas toujours dispo sur all_leagues -> on laisse null ici (on peut enrichir + tard)
-        country: null,
-        type: (l.strLeague && l.strLeague.toLowerCase().includes("cup")) ? "CUP" : "LEAGUE",
-        code: null,
-        emblem: null,
-      }))
-      // garde uniquement foot (soccer)
-      .filter((x) => (x.sport || "").toLowerCase() === "soccer")
-      .map(({ sport, ...rest }) => rest);
-
-      return { count: items.length, items };
+      return leagues
+        .filter((l) => (l.strSport || "").toLowerCase() === "soccer")
+        .map((l) => ({
+          id: `TSDB:${l.idLeague}`,
+          source: "thesportsdb",
+          name: l.strLeague || null,
+          code: null,
+          type:
+            (l.strLeague || "").toLowerCase().includes("cup")
+              ? "CUP"
+              : "LEAGUE",
+          country: null,
+          countryCode: null,
+          emblem: null,
+          seasonStart: null,
+          seasonEnd: null,
+        }));
     }
 
-    // ---------- Run ----------
-    const tasks = [];
-    if (source === "all" || source === "football-data") tasks.push(getFootballDataCompetitions());
-    if (source === "all" || source === "thesportsdb") tasks.push(getTSDBLeagues());
+    // ---------------- FETCH DATA ----------------
+    const fdData =
+      source === "all" || source === "football-data"
+        ? await getFootballData()
+        : [];
 
-    const results = await Promise.all(tasks);
+    const tsdbData =
+      source === "all" || source === "thesportsdb"
+        ? await getTSDB()
+        : [];
 
-    const merged = results.flatMap((r) => r.items || []);
+    // ---------------- DEDUP (priorité football-data) ----------------
+    const fdNames = new Set(
+      fdData.map((x) => (x.name || "").toLowerCase())
+    );
 
-    // filtres optionnels
-    let filtered = merged;
+    const cleanTsdb = tsdbData.filter(
+      (x) => !fdNames.has((x.name || "").toLowerCase())
+    );
 
+    let merged = [...fdData, ...cleanTsdb];
+
+    // ---------------- FILTERS ----------------
     if (country) {
-      filtered = filtered.filter((x) => (x.country || "").toLowerCase().includes(country));
+      merged = merged.filter((x) =>
+        (x.country || "").toLowerCase().includes(country)
+      );
     }
+
     if (type) {
-      filtered = filtered.filter((x) => (x.type || "") === type);
+      merged = merged.filter((x) => x.type === type);
     }
 
-    // tri “propre”
-    filtered.sort((a, b) => {
-      const an = (a.name || "").toLowerCase();
-      const bn = (b.name || "").toLowerCase();
-      if (an < bn) return -1;
-      if (an > bn) return 1;
-      return 0;
-    });
+    // ---------------- SORT ----------------
+    merged.sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "")
+    );
 
-    // cache léger (évite spam)
-    res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=86400");
+    res.setHeader(
+      "Cache-Control",
+      "s-maxage=3600, stale-while-revalidate=86400"
+    );
 
     return res.status(200).json({
-      buildTag: "CATALOG_GLOBAL_V1",
-      count: filtered.length,
+      buildTag: "CATALOG_GLOBAL_CLEAN_V1",
+      count: merged.length,
       sources: {
-        footballData: results.find((r) => r?.items?.[0]?.id?.startsWith("FD:"))?.count ?? 0,
-        theSportsDB: results.find((r) => r?.items?.[0]?.id?.startsWith("TSDB:"))?.count ?? 0,
+        footballData: fdData.length,
+        theSportsDB: cleanTsdb.length,
       },
-      competitions: filtered,
-      usage: {
-        examples: [
-          "/api/catalog_global",
-          "/api/catalog_global?source=football-data",
-          "/api/catalog_global?source=thesportsdb",
-          "/api/catalog_global?type=CUP",
-        ],
-      },
+      competitions: merged,
     });
-  } catch (e) {
+  } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: e.message || "Unknown error",
-      details: e.details || null,
+      error: error.message,
     });
   }
 }
