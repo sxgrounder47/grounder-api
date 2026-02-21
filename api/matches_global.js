@@ -1,121 +1,151 @@
 // api/matches_global.js
-module.exports = async (req, res) => {
-  // CORS
+
+function send(res, status, payload) {
+  res.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
+  // CORS simple
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.status(200).end();
+  return res.end(JSON.stringify(payload));
+}
 
-  try {
-    const date = req.query.date || new Date().toISOString().slice(0, 10);
+function normalizeDateInput(dateStr) {
+  // attendu: YYYY-MM-DD
+  if (!dateStr || typeof dateStr !== "string") return null;
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(dateStr);
+  return ok ? dateStr : null;
+}
 
-    const [fd, tsdb] = await Promise.allSettled([
-      fetchFootballData(date),
-      fetchTheSportsDB(date),
-    ]);
+function parseCompetitionId(raw) {
+  if (!raw || typeof raw !== "string") return null;
+  // Exemple: "FD:2021" / "TSDB:4332"
+  const [source, id] = raw.split(":");
+  if (!source || !id) return null;
+  const s = source.trim().toUpperCase();
+  const i = id.trim();
+  if (s !== "FD" && s !== "TSDB") return null;
+  return { source: s, id: i, raw: `${s}:${i}` };
+}
 
-    const fdMatches = fd.status === "fulfilled" ? fd.value : [];
-    const tsdbMatches = tsdb.status === "fulfilled" ? tsdb.value : [];
+function pickQueryParam(req) {
+  // on accepte plusieurs noms pour éviter les galères
+  return (
+    req.query.competitionId ||
+    req.query.leagueId ||
+    req.query.competition ||
+    req.query.id ||
+    null
+  );
+}
 
-    // Merge + dedupe
-    const merged = dedupeMatches([...fdMatches, ...tsdbMatches]);
+/**
+ * FOOTBALL-DATA (v4)
+ * GET /v4/competitions/{id}/matches?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD
+ */
+async function fetchFootballDataMatches({ competitionIdNumber, date }) {
+  const apiKey = process.env.FOOTBALL_DATA_API_KEY;
+  if (!apiKey) throw new Error("Missing env FOOTBALL_DATA_API_KEY");
 
-    return res.status(200).json({
-      date,
-      sources: {
-        footballData: fdMatches.length,
-        theSportsDB: tsdbMatches.length,
-      },
-      count: merged.length,
-      matches: merged,
-    });
-  } catch (e) {
-    return res.status(500).json({ error: "Server error", message: String(e) });
+  const url = `https://api.football-data.org/v4/competitions/${competitionIdNumber}/matches?dateFrom=${date}&dateTo=${date}`;
+
+  const r = await fetch(url, {
+    headers: { "X-Auth-Token": apiKey },
+  });
+
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    throw new Error(`football-data error ${r.status}: ${txt.slice(0, 200)}`);
   }
-};
-
-// ---------- FOOTBALL-DATA.ORG ----------
-async function fetchFootballData(date) {
-  const token = process.env.FOOTBALL_DATA_API_KEY;
-  if (!token) return [];
-
-  const url = `https://api.football-data.org/v4/matches?dateFrom=${date}&dateTo=${date}`;
-  const r = await fetch(url, { headers: { "X-Auth-Token": token } });
-  if (!r.ok) return [];
 
   const data = await r.json();
-  return (data.matches || []).map((m) => ({
-    id: `FD:${m.id}`,
+
+  // data.matches[]
+  const matches = (data.matches || []).map((m) => ({
+    id: `FD_MATCH:${m.id}`,
     source: "football-data",
     utcDate: m.utcDate,
     status: m.status,
     competition: {
-      id: m.competition?.id ?? null,
+      id: String(m.competition?.id ?? competitionIdNumber),
       name: m.competition?.name ?? null,
       country: m.area?.name ?? null,
     },
     homeTeam: {
-      id: m.homeTeam?.id ?? null,
+      id: String(m.homeTeam?.id ?? ""),
       name: m.homeTeam?.name ?? null,
-      shortName: m.homeTeam?.shortName || m.homeTeam?.tla || m.homeTeam?.name || null,
-      logo: null,
+      shortName: m.homeTeam?.shortName ?? null,
+      logo: m.homeTeam?.crest ?? null,
     },
     awayTeam: {
-      id: m.awayTeam?.id ?? null,
+      id: String(m.awayTeam?.id ?? ""),
       name: m.awayTeam?.name ?? null,
-      shortName: m.awayTeam?.shortName || m.awayTeam?.tla || m.awayTeam?.name || null,
-      logo: null,
+      shortName: m.awayTeam?.shortName ?? null,
+      logo: m.awayTeam?.crest ?? null,
     },
     score: {
       home: m.score?.fullTime?.home ?? null,
       away: m.score?.fullTime?.away ?? null,
     },
     venue: {
-      name: m.venue || null,
+      name: m.venue ?? null,
       city: null,
       gps: null,
     },
   }));
+
+  return matches;
 }
 
-// ---------- THESPORTSDB ----------
-async function fetchTheSportsDB(date) {
-  // TheSportsDB: tu peux utiliser la clé "1" (dev/public),
-  // mais l'idéal est de créer une clé gratuite perso et la mettre ici.
-  const key = process.env.THESPORTSDB_API_KEY || "1";
+/**
+ * THESPORTSDB
+ * eventsday.php donne tous les events du jour pour un sport.
+ * On filtre ensuite par idLeague si on veut une compétition spécifique.
+ */
+async function fetchTheSportsDbMatches({ date, tsdbLeagueId = null }) {
+  const apiKey = process.env.THESPORTSDB_API_KEY; // sur ton screen ta key = "123"
+  if (!apiKey) throw new Error("Missing env THESPORTSDB_API_KEY");
 
-  // Soccer day events
-  const url = `https://www.thesportsdb.com/api/v1/json/${key}/eventsday.php?d=${date}&s=Soccer`;
+  // Soccer / Football
+  const url = `https://www.thesportsdb.com/api/v1/json/${apiKey}/eventsday.php?d=${date}&s=Soccer`;
+
   const r = await fetch(url);
-  if (!r.ok) return [];
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    throw new Error(`thesportsdb error ${r.status}: ${txt.slice(0, 200)}`);
+  }
 
   const data = await r.json();
-  const events = data.events || [];
-  return events.map((e) => ({
+  let events = data?.events || [];
+
+  if (tsdbLeagueId) {
+    events = events.filter((e) => String(e.idLeague) === String(tsdbLeagueId));
+  }
+
+  const matches = events.map((e) => ({
     id: `TSDB:${e.idEvent}`,
     source: "thesportsdb",
-    utcDate: e.dateEvent && e.strTime ? `${e.dateEvent}T${normalizeTime(e.strTime)}Z` : null,
-    status: normalizeTSDBStatus(e.strStatus),
+    utcDate: e.strTimestamp ? new Date(e.strTimestamp).toISOString() : null,
+    status: e.strStatus || "SCHEDULED",
     competition: {
-      id: e.idLeague || null,
+      id: String(e.idLeague || ""),
       name: e.strLeague || null,
       country: e.strCountry || null,
     },
     homeTeam: {
-      id: e.idHomeTeam || null,
+      id: String(e.idHomeTeam || ""),
       name: e.strHomeTeam || null,
       shortName: e.strHomeTeam || null,
       logo: null,
     },
     awayTeam: {
-      id: e.idAwayTeam || null,
+      id: String(e.idAwayTeam || ""),
       name: e.strAwayTeam || null,
       shortName: e.strAwayTeam || null,
       logo: null,
     },
     score: {
-      home: isNum(e.intHomeScore) ? Number(e.intHomeScore) : null,
-      away: isNum(e.intAwayScore) ? Number(e.intAwayScore) : null,
+      home: e.intHomeScore != null ? Number(e.intHomeScore) : null,
+      away: e.intAwayScore != null ? Number(e.intAwayScore) : null,
     },
     venue: {
       name: e.strVenue || null,
@@ -123,46 +153,76 @@ async function fetchTheSportsDB(date) {
       gps: null,
     },
   }));
+
+  return matches;
 }
 
-function dedupeMatches(matches) {
-  // Dédup simple par “date + home + away”
-  const map = new Map();
-  for (const m of matches) {
-    const d = (m.utcDate || "").slice(0, 10);
-    const h = (m.homeTeam?.name || "").toLowerCase().trim();
-    const a = (m.awayTeam?.name || "").toLowerCase().trim();
-    const key = `${d}|${h}|${a}`;
+module.exports = async (req, res) => {
+  if (req.method === "OPTIONS") return send(res, 200, { ok: true });
 
-    if (!map.has(key)) {
-      map.set(key, m);
-    } else {
-      // on garde celui qui a un score ou une date plus précise
-      const prev = map.get(key);
-      const prevHasScore = prev?.score?.home != null || prev?.score?.away != null;
-      const currHasScore = m?.score?.home != null || m?.score?.away != null;
-
-      if (!prevHasScore && currHasScore) map.set(key, m);
-      if (!prev.utcDate && m.utcDate) map.set(key, m);
+  try {
+    const date = normalizeDateInput(req.query.date) || normalizeDateInput(req.query.d);
+    if (!date) {
+      return send(res, 400, {
+        ok: false,
+        error: "Missing/invalid date. Use ?date=YYYY-MM-DD",
+        example: "/api/matches_global?competitionId=FD:2021&date=2026-02-21",
+      });
     }
+
+    const rawComp = pickQueryParam(req);
+    const parsed = parseCompetitionId(rawComp);
+
+    // CASE 1: competitionId fourni et valide
+    if (parsed?.source === "FD") {
+      const competitionIdNumber = parsed.id; // ex: 2021
+      const matches = await fetchFootballDataMatches({ competitionIdNumber, date });
+
+      return send(res, 200, {
+        buildTag: "MATCHES_GLOBAL_ROUTED_V1",
+        date,
+        sources: { footballData: matches.length, theSportsDB: 0 },
+        count: matches.length,
+        matches,
+      });
+    }
+
+    if (parsed?.source === "TSDB") {
+      const tsdbLeagueId = parsed.id; // ex: 4332
+      const matches = await fetchTheSportsDbMatches({ date, tsdbLeagueId });
+
+      return send(res, 200, {
+        buildTag: "MATCHES_GLOBAL_ROUTED_V1",
+        date,
+        sources: { footballData: 0, theSportsDB: matches.length },
+        count: matches.length,
+        matches,
+      });
+    }
+
+    // CASE 2: pas de competitionId (ou invalide) -> fallback TSDB du jour (tout Soccer)
+    const matches = await fetchTheSportsDbMatches({ date, tsdbLeagueId: null });
+
+    return send(res, 200, {
+      buildTag: "MATCHES_GLOBAL_FALLBACK_TSDB_V1",
+      date,
+      sources: { footballData: 0, theSportsDB: matches.length },
+      count: matches.length,
+      matches,
+      usage: {
+        examples: [
+          `/api/matches_global?competitionId=FD:2021&date=${date}`,
+          `/api/matches_global?competitionId=TSDB:4332&date=${date}`,
+          `/api/matches_global?date=${date}`,
+        ],
+      },
+    });
+  } catch (err) {
+    console.error("matches_global error:", err);
+    return send(res, 500, {
+      ok: false,
+      error: "INTERNAL_SERVER_ERROR",
+      message: err?.message || String(err),
+    });
   }
-  return Array.from(map.values());
-}
-
-function normalizeTSDBStatus(s) {
-  if (!s) return "SCHEDULED";
-  const x = s.toLowerCase();
-  if (x.includes("finished") || x.includes("ft")) return "FINISHED";
-  if (x.includes("live") || x.includes("in progress")) return "LIVE";
-  return "SCHEDULED";
-}
-
-function normalizeTime(t) {
-  // t peut être "19:45:00" ou "19:45"
-  if (!t) return "00:00:00";
-  return t.length === 5 ? `${t}:00` : t;
-}
-
-function isNum(v) {
-  return v !== null && v !== undefined && v !== "" && !Number.isNaN(Number(v));
-}
+};
