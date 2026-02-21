@@ -1,4 +1,3 @@
-// api/catalog.js
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
@@ -6,31 +5,21 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
-    // Tu pourras changer ça quand tu auras choisi EXACTEMENT quel JSON OpenFootball utiliser
-    // (pays, ligues, clubs, etc.)
-    const url =
-      req.query.url ||
-      process.env.OPENFOOTBALL_CATALOG_URL ||
-      "";
+    // Lire le JSON local (stocké dans le repo)
+    const catalog = require("../data/openfootball_catalog.json");
 
-    if (!url) {
-      return res.status(200).json({
-        ok: true,
-        message:
-          "Set OPENFOOTBALL_CATALOG_URL (or pass ?url=...) to a raw JSON file from OpenFootball.",
-        example:
-          "GET /api/catalog?url=<RAW_JSON_URL>",
-      });
+    // Optionnel: filtrage simple
+    const q = (req.query.q || "").toLowerCase().trim();
+    if (!q) {
+      return res.status(200).json({ ok: true, count: catalog.length, items: catalog });
     }
 
-    const r = await fetch(url);
-    if (!r.ok) {
-      const txt = await r.text();
-      return res.status(r.status).json({ error: "OpenFootball fetch failed", details: txt });
-    }
+    const filtered = catalog.filter((x) => {
+      const hay = `${x.country} ${x.league} ${x.team}`.toLowerCase();
+      return hay.includes(q);
+    });
 
-    const data = await r.json();
-    return res.status(200).json({ ok: true, sourceUrl: url, data });
+    return res.status(200).json({ ok: true, count: filtered.length, items: filtered });
   } catch (e) {
     return res.status(500).json({ error: "Server error", message: String(e) });
   }
