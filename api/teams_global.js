@@ -1,70 +1,37 @@
-module.exports = async (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.status(200).end();
-
-  const buildTag = "TEAMS_GLOBAL_V1";
-
-  try {
-    const leagueId = (req.query.leagueId || "").trim(); // ex: "TSDB:4328" ou "FD:2021"
-    if (!leagueId) {
-      return res.status(400).json({ buildTag, error: "Missing leagueId. Example: ?leagueId=TSDB:4328" });
-    }
-
-    const [src, rawId] = leagueId.split(":");
-
-    let teams = [];
-    if (src === "TSDB") {
-      teams = await fetchTSDBTeams(rawId);
-    } else if (src === "FD") {
-      teams = await fetchFDTeams(rawId);
-    } else {
-      return res.status(400).json({ buildTag, error: "Unknown leagueId source. Use TSDB:xxxx or FD:xxxx" });
-    }
-
-    return res.status(200).json({
-      buildTag,
-      leagueId,
-      count: teams.length,
-      teams
-    });
-  } catch (e) {
-    return res.status(500).json({ buildTag, error: "Server error", message: String(e) });
-  }
-};
-
 async function fetchTSDBTeams(idLeague) {
   const key = process.env.THESPORTSDB_API_KEY || "1";
-  const r = await fetch(`https://www.thesportsdb.com/api/v1/json/${key}/lookup_all_teams.php?id=${idLeague}`);
-  if (!r.ok) return [];
-  const data = await r.json();
-  const teams = data.teams || [];
-  return teams.map(t => ({
-    id: `TSDB_TEAM:${t.idTeam}`,
-    source: "thesportsdb",
-    name: t.strTeam || null,
-    shortName: t.strTeamShort || null,
-    country: t.strCountry || null,
-    badge: t.strTeamBadge || null
-  }));
-}
 
-async function fetchFDTeams(competitionId) {
-  const token = process.env.FOOTBALL_DATA_API_KEY;
-  if (!token) return [];
-  const r = await fetch(`https://api.football-data.org/v4/competitions/${competitionId}/teams`, {
-    headers: { "X-Auth-Token": token }
-  });
+  // 1️⃣ Récupérer les équipes
+  const r = await fetch(
+    `https://www.thesportsdb.com/api/v1/json/${key}/lookup_all_teams.php?id=${idLeague}`
+  );
   if (!r.ok) return [];
+
   const data = await r.json();
   const teams = data.teams || [];
-  return teams.map(t => ({
-    id: `FD_TEAM:${t.id}`,
-    source: "football-data",
-    name: t.name || null,
-    shortName: t.shortName || null,
-    country: t.area?.name || null,
-    crest: t.crest || null
-  }));
+
+  // 2️⃣ Pour chaque équipe → récupérer logo via lookupteam
+  const detailedTeams = await Promise.all(
+    teams.map(async (t) => {
+      const detailRes = await fetch(
+        `https://www.thesportsdb.com/api/v1/json/${key}/lookupteam.php?id=${t.idTeam}`
+      );
+      if (!detailRes.ok) return null;
+
+      const detailData = await detailRes.json();
+      const detail = detailData.teams?.[0];
+
+      return {
+        id: `TSDB_TEAM:${t.idTeam}`,
+        source: "thesportsdb",
+        name: t.strTeam || null,
+        shortName: t.strTeamShort || null,
+        country: t.strCountry || null,
+        badge: detail?.strTeamBadge || null,
+        stadium: detail?.strStadium || null
+      };
+    })
+  );
+
+  return detailedTeams.filter(Boolean);
 }
