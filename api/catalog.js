@@ -1,26 +1,25 @@
-module.exports = async (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.status(200).end();
-
+module.exports = async function handler(req, res) {
+  const { url } = req.query;
+  if (!url || !url.startsWith("https://crests.football-data.org/")) {
+    return res.status(400).json({ error: "Invalid URL" });
+  }
   try {
-    // Lire le JSON local (stocké dans le repo)
-    const catalog = require("../data/openfootball_catalog.json");
-
-    // Optionnel: filtrage simple
-    const q = (req.query.q || "").toLowerCase().trim();
-    if (!q) {
-      return res.status(200).json({ ok: true, count: catalog.length, items: catalog });
-    }
-
-    const filtered = catalog.filter((x) => {
-      const hay = `${x.country} ${x.league} ${x.team}`.toLowerCase();
-      return hay.includes(q);
+    const upstream = await fetch(url, {
+      headers: {
+        "Referer": "https://www.football-data.org/",
+        "User-Agent": "Mozilla/5.0",
+      },
     });
-
-    return res.status(200).json({ ok: true, count: filtered.length, items: filtered });
+    if (!upstream.ok) {
+      return res.status(upstream.status).end();
+    }
+    const buffer = await upstream.arrayBuffer();
+    const ct = upstream.headers.get("content-type") ?? "image/png";
+    res.setHeader("Content-Type", ct);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.send(Buffer.from(buffer));
   } catch (e) {
-    return res.status(500).json({ error: "Server error", message: String(e) });
+    res.status(500).json({ error: e.message });
   }
 };
