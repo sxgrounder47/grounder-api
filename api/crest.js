@@ -1,9 +1,4 @@
-/**
- * Vercel Edge Function — /api/crest
- * Proxies Football-Data.org crest images to bypass CORS/hotlink protection
- * Usage: /api/crest?url=https://crests.football-data.org/...
- */
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   const { url } = req.query;
   if (!url || !url.startsWith("https://crests.football-data.org/")) {
     return res.status(400).json({ error: "Invalid URL" });
@@ -27,4 +22,4 @@ export default async function handler(req, res) {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
-}
+};
