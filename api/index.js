@@ -251,8 +251,20 @@ async function handleTeamHistory(req, res) {
     return res.status(400).json({ error: "Missing teamId or team name" });
   }
 
-  // Sportmonks limite à 100 jours — on splitte en tranches de 90j
-  async function fetchChunk(from, to) {
+  // Sportmonks limite à 100 jours — on splitte en chunks de 90j et on appelle en parallèle
+  const chunks = [];
+  let cursor = new Date(dateFrom);
+  const endDateObj = new Date(dateTo);
+  while (cursor < endDateObj) {
+    const chunkEnd = new Date(cursor);
+    chunkEnd.setDate(chunkEnd.getDate() + 89);
+    if (chunkEnd > endDateObj) chunkEnd.setTime(endDateObj.getTime());
+    chunks.push([cursor.toISOString().slice(0, 10), chunkEnd.toISOString().slice(0, 10)]);
+    cursor = new Date(chunkEnd);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const chunkResults = await Promise.all(chunks.map(async ([from, to]) => {
     const u = new URL(`${SM_BASE}/fixtures/between/${from}/${to}/teams/${teamId}`);
     u.searchParams.set("api_token", SM_TOKEN);
     u.searchParams.set("include", "participants;scores;state;league");
@@ -260,33 +272,14 @@ async function handleTeamHistory(req, res) {
     u.searchParams.set("sort", "desc");
     const r = await fetch(u.toString());
     if (!r.ok) {
-      const txt = await r.text();
-      // Ignorer les 404 (pas de matchs sur cette période)
       if (r.status === 404) return [];
-      throw new Error(`${r.status}: ${txt}`);
+      throw new Error(`${r.status}: ${await r.text()}`);
     }
     const d = await r.json();
     return d.data ?? [];
-  }
+  }));
 
-  // Découper la plage en chunks de 90 jours
-  const chunks = [];
-  let cursor = new Date(dateFrom);
-  const endDate = new Date(dateTo);
-  while (cursor < endDate) {
-    const chunkEnd = new Date(cursor);
-    chunkEnd.setDate(chunkEnd.getDate() + 89);
-    if (chunkEnd > endDate) chunkEnd.setTime(endDate.getTime());
-    chunks.push([
-      cursor.toISOString().slice(0, 10),
-      chunkEnd.toISOString().slice(0, 10),
-    ]);
-    cursor = new Date(chunkEnd);
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  const allChunks = await Promise.all(chunks.map(([f, t]) => fetchChunk(f, t)));
-  const fixtures = allChunks.flat();
+  const fixtures = chunkResults.flat();
 
   const matches = fixtures.map(f => {
     const participants = f.participants ?? [];
