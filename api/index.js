@@ -349,6 +349,18 @@ module.exports = async function handler(req, res) {
     if (pathname === "api/livescores")         return await handleLivescores(req, res);
     if (pathname === "api/team_history")       return await handleTeamHistory(req, res);
     if (pathname === "api/leagues")            return await handleLeagues(req, res);
+    if (pathname === "api/team_search") {
+      const { name } = req.query;
+      if (!name) return res.status(400).json({ error: "Missing name" });
+      const url = new URL(`${SM_BASE}/teams/search/${encodeURIComponent(name)}`);
+      url.searchParams.set("api_token", SM_TOKEN);
+      url.searchParams.set("per_page", "5");
+      url.searchParams.set("select", "id,name,short_code");
+      const r = await fetch(url.toString());
+      const d = await r.json();
+      const id = await resolveTeamId(name);
+      return res.status(200).json({ resolvedId: id, teams: d.data ?? [] });
+    }
     if (pathname === "api/competitions_global") return handleCompetitionsGlobal(req, res);
     if (pathname === "api/stadiums_global")    return await handleStadiumsGlobal(req, res);
 
