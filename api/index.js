@@ -189,62 +189,43 @@ async function handleLivescores(req, res) {
 }
 
 // Résolution nom d'équipe → Sportmonks team ID
-// Cache en mémoire (reset à chaque cold start Vercel)
-const TEAM_ID_CACHE = new Map();
-
-// Mapping nom club → league Sportmonks pour lookup ciblé
-const CLUB_LEAGUE_MAP = {
-  "Paris Saint-Germain": 301, "Olympique de Marseille": 301, "Olympique Lyonnais": 301,
-  "RC Lens": 301, "LOSC Lille": 301, "Stade Rennais FC": 301, "OGC Nice": 301,
-  "AS Monaco": 301, "FC Nantes": 301, "RC Strasbourg": 301, "Toulouse FC": 301,
-  "Stade Brestois 29": 301, "Le Havre AC": 301, "Montpellier HSC": 301,
-  "Stade de Reims": 301,
-  "Manchester United": 8, "Manchester City": 8, "Liverpool FC": 8,
-  "Arsenal FC": 8, "Chelsea FC": 8, "Tottenham Hotspur": 8,
-  "Aston Villa": 8, "Newcastle United": 8,
-  "FC Bayern München": 82, "Borussia Dortmund": 82, "Bayer Leverkusen": 82,
-  "VfB Stuttgart": 82, "Eintracht Frankfurt": 82,
-  "Real Madrid CF": 564, "FC Barcelona": 564, "Atlético de Madrid": 564,
-  "Sevilla FC": 564, "Real Betis": 564,
-  "AC Milan": 384, "Inter Milan": 384, "Juventus FC": 384,
-  "SSC Napoli": 384, "AS Roma": 384, "SS Lazio": 384, "Atalanta BC": 384,
-  "SL Benfica": 462, "FC Porto": 462,
-  "AFC Ajax": 72, "PSV Eindhoven": 72,
+// ─── Mapping nom club → Sportmonks team ID (vérifié via matches_global) ────────
+const SM_TEAM_IDS = {
+  // 🇫🇷 Ligue 1
+  "Paris Saint-Germain": 591, "Olympique Marseille": 44, "Olympique de Marseille": 44,
+  "Olympique Lyonnais": 79, "RC Lens": 271, "LOSC Lille": 690,
+  "Stade Rennais FC": 598, "Rennes": 598, "OGC Nice": 450, "Nice": 450,
+  "AS Monaco": 6789, "Monaco": 6789, "FC Nantes": 59, "Nantes": 59,
+  "RC Strasbourg": 686, "Strasbourg": 686, "Toulouse FC": 289, "Toulouse": 289,
+  "Stade Brestois 29": 266, "Brest": 266, "Le Havre AC": 1055, "Le Havre": 1055,
+  "Angers SCO": 776, "Angers": 776, "Lorient": 9257, "AJ Auxerre": 3682, "Auxerre": 3682,
+  "FC Metz": 3513, "Metz": 3513, "Paris FC": 4508,
+  // 🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League
+  "Manchester United": 14, "Manchester City": 9, "Liverpool FC": 8, "Liverpool": 8,
+  "Arsenal FC": 2, "Arsenal": 2, "Chelsea FC": 3, "Chelsea": 3,
+  "Tottenham Hotspur": 6, "Tottenham": 6, "Aston Villa": 21, "Newcastle United": 17,
+  "Brighton & Hove Albion": 61, "West Ham United": 29, "Brentford": 7938,
+  "Fulham": 574, "Wolverhampton Wanderers": 351, "Crystal Palace": 1388,
+  "Everton": 51, "Bournemouth": 521, "Ipswich Town": 21390, "Leicester City": 31,
+  // 🇩🇪 Bundesliga
+  "FC Bayern München": 396, "Borussia Dortmund": 394, "Bayer Leverkusen": 393,
+  "VfB Stuttgart": 401, "Eintracht Frankfurt": 400, "RB Leipzig": 3728,
+  // 🇪🇸 La Liga
+  "Real Madrid CF": 732, "FC Barcelona": 83, "Atlético de Madrid": 80,
+  "Sevilla FC": 226, "Real Betis": 84, "Athletic Club": 121,
+  "Real Sociedad": 85, "Villarreal CF": 209,
+  // 🇮🇹 Serie A
+  "AC Milan": 3024, "Inter Milan": 3025, "Juventus FC": 3026,
+  "SSC Napoli": 3031, "AS Roma": 3029, "SS Lazio": 3030,
+  "Atalanta BC": 3027, "ACF Fiorentina": 3028, "Torino FC": 3033,
+  // 🇵🇹 Liga Portugal
+  "SL Benfica": 1963, "FC Porto": 1968, "Sporting CP": 1967,
+  // 🇳🇱 Eredivisie
+  "AFC Ajax": 676, "PSV Eindhoven": 663, "Feyenoord": 675,
 };
 
-async function resolveTeamId(teamName) {
-  if (TEAM_ID_CACHE.has(teamName)) return TEAM_ID_CACHE.get(teamName);
-
-  const leagueId = CLUB_LEAGUE_MAP[teamName] ?? 301;
-  try {
-    const url = new URL(`${SM_BASE}/teams`);
-    url.searchParams.set("api_token", SM_TOKEN);
-    url.searchParams.set("filters", `leagueId:${leagueId}`);
-    url.searchParams.set("per_page", "50");
-    url.searchParams.set("select", "id,name,short_code");
-
-    const r = await fetch(url.toString());
-    if (!r.ok) return null;
-    const d = await r.json();
-    const teams = d.data ?? [];
-
-    // Mettre en cache toutes les équipes de la ligue
-    for (const t of teams) {
-      if (t.name && !TEAM_ID_CACHE.has(t.name)) {
-        TEAM_ID_CACHE.set(t.name, t.id);
-      }
-    }
-
-    // Matching: exact → contains → short_code
-    const nameLower = teamName.toLowerCase();
-    const match = teams.find(t => t.name?.toLowerCase() === nameLower)
-      ?? teams.find(t => t.name?.toLowerCase().includes(nameLower) || nameLower.includes(t.name?.toLowerCase() ?? "__"))
-      ?? teams.find(t => t.short_code?.toLowerCase() === nameLower.replace(/[^a-z]/g,"").slice(0,3));
-
-    const id = match?.id ?? null;
-    if (id) TEAM_ID_CACHE.set(teamName, id);
-    return id;
-  } catch { return null; }
+function resolveTeamId(teamName) {
+  return SM_TEAM_IDS[teamName] ?? null;
 }
 
 async function handleTeamHistory(req, res) {
@@ -270,19 +251,42 @@ async function handleTeamHistory(req, res) {
     return res.status(400).json({ error: "Missing teamId or team name" });
   }
 
-  const url = new URL(`${SM_BASE}/fixtures/between/${dateFrom}/${dateTo}/teams/${teamId}`);
-  url.searchParams.set("api_token", SM_TOKEN);
-  url.searchParams.set("include", "participants;scores;state;league");
-  url.searchParams.set("per_page", "100");
-  url.searchParams.set("page", page);
-  url.searchParams.set("order", "starting_at");
-  url.searchParams.set("sort", "desc");
+  // Sportmonks limite à 100 jours — on splitte en tranches de 90j
+  async function fetchChunk(from, to) {
+    const u = new URL(`${SM_BASE}/fixtures/between/${from}/${to}/teams/${teamId}`);
+    u.searchParams.set("api_token", SM_TOKEN);
+    u.searchParams.set("include", "participants;scores;state;league");
+    u.searchParams.set("per_page", "100");
+    u.searchParams.set("sort", "desc");
+    const r = await fetch(u.toString());
+    if (!r.ok) {
+      const txt = await r.text();
+      // Ignorer les 404 (pas de matchs sur cette période)
+      if (r.status === 404) return [];
+      throw new Error(`${r.status}: ${txt}`);
+    }
+    const d = await r.json();
+    return d.data ?? [];
+  }
 
-  const r = await fetch(url.toString());
-  if (!r.ok) return res.status(r.status).json({ error: await r.text() });
+  // Découper la plage en chunks de 90 jours
+  const chunks = [];
+  let cursor = new Date(dateFrom);
+  const endDate = new Date(dateTo);
+  while (cursor < endDate) {
+    const chunkEnd = new Date(cursor);
+    chunkEnd.setDate(chunkEnd.getDate() + 89);
+    if (chunkEnd > endDate) chunkEnd.setTime(endDate.getTime());
+    chunks.push([
+      cursor.toISOString().slice(0, 10),
+      chunkEnd.toISOString().slice(0, 10),
+    ]);
+    cursor = new Date(chunkEnd);
+    cursor.setDate(cursor.getDate() + 1);
+  }
 
-  const data = await r.json();
-  const fixtures = data.data ?? [];
+  const allChunks = await Promise.all(chunks.map(([f, t]) => fetchChunk(f, t)));
+  const fixtures = allChunks.flat();
 
   const matches = fixtures.map(f => {
     const participants = f.participants ?? [];
@@ -390,18 +394,16 @@ module.exports = async function handler(req, res) {
     if (pathname === "api/team_history")       return await handleTeamHistory(req, res);
     if (pathname === "api/leagues")            return await handleLeagues(req, res);
     if (pathname === "api/team_search") {
-      const { name, league } = req.query;
-      if (!name) return res.status(400).json({ error: "Missing name" });
-      const leagueId = league ?? (CLUB_LEAGUE_MAP[name] ?? 301);
-      const url = new URL(`${SM_BASE}/teams`);
-      url.searchParams.set("api_token", SM_TOKEN);
-      url.searchParams.set("filters", `leagueId:${leagueId}`);
-      url.searchParams.set("per_page", "50");
-      url.searchParams.set("select", "id,name,short_code");
-      const r = await fetch(url.toString());
-      const d = await r.json();
-      const id = await resolveTeamId(name);
-      return res.status(200).json({ resolvedId: id, leagueId, teams: (d.data ?? []).map(t => ({ id: t.id, name: t.name, short_code: t.short_code })) });
+      const { name } = req.query;
+      const smLeagueId = name ? (CLUB_LEAGUE_MAP[name] ?? 301) : 301;
+      const teams = await getTeamsByLeague(smLeagueId);
+      const resolvedId = name ? await resolveTeamId(name) : null;
+      return res.status(200).json({
+        resolvedId,
+        smLeagueId,
+        count: teams.length,
+        teams: teams.sort((a,b) => (a.name ?? "").localeCompare(b.name ?? "")),
+      });
     }
     if (pathname === "api/competitions_global") return handleCompetitionsGlobal(req, res);
     if (pathname === "api/stadiums_global")    return await handleStadiumsGlobal(req, res);
