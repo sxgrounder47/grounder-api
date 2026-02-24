@@ -265,8 +265,9 @@ async function handleTeamHistory(req, res) {
   }
 
   const chunkResults = await Promise.all(chunks.map(async ([from, to]) => {
-    const u = new URL(`${SM_BASE}/fixtures/between/${from}/${to}/teams/${teamId}`);
+    const u = new URL(`${SM_BASE}/fixtures/between/${from}/${to}`);
     u.searchParams.set("api_token", SM_TOKEN);
+    u.searchParams.set("filters", `teamId:${teamId}`);
     u.searchParams.set("include", "participants;scores;state;league");
     u.searchParams.set("per_page", "100");
     u.searchParams.set("sort", "desc");
