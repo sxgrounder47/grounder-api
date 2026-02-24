@@ -326,7 +326,7 @@ async function handleTeamHistory(req, res) {
   return res.status(200).json({
     matches,
     teamId: Number(teamId),
-    hasMore: data.pagination?.has_more ?? false,
+    hasMore: false,
     page: Number(page),
   });
 }
