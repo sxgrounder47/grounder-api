@@ -189,22 +189,62 @@ async function handleLivescores(req, res) {
 }
 
 // Résolution nom d'équipe → Sportmonks team ID
+// Cache en mémoire (reset à chaque cold start Vercel)
+const TEAM_ID_CACHE = new Map();
+
+// Mapping nom club → league Sportmonks pour lookup ciblé
+const CLUB_LEAGUE_MAP = {
+  "Paris Saint-Germain": 301, "Olympique de Marseille": 301, "Olympique Lyonnais": 301,
+  "RC Lens": 301, "LOSC Lille": 301, "Stade Rennais FC": 301, "OGC Nice": 301,
+  "AS Monaco": 301, "FC Nantes": 301, "RC Strasbourg": 301, "Toulouse FC": 301,
+  "Stade Brestois 29": 301, "Le Havre AC": 301, "Montpellier HSC": 301,
+  "Stade de Reims": 301,
+  "Manchester United": 8, "Manchester City": 8, "Liverpool FC": 8,
+  "Arsenal FC": 8, "Chelsea FC": 8, "Tottenham Hotspur": 8,
+  "Aston Villa": 8, "Newcastle United": 8,
+  "FC Bayern München": 82, "Borussia Dortmund": 82, "Bayer Leverkusen": 82,
+  "VfB Stuttgart": 82, "Eintracht Frankfurt": 82,
+  "Real Madrid CF": 564, "FC Barcelona": 564, "Atlético de Madrid": 564,
+  "Sevilla FC": 564, "Real Betis": 564,
+  "AC Milan": 384, "Inter Milan": 384, "Juventus FC": 384,
+  "SSC Napoli": 384, "AS Roma": 384, "SS Lazio": 384, "Atalanta BC": 384,
+  "SL Benfica": 462, "FC Porto": 462,
+  "AFC Ajax": 72, "PSV Eindhoven": 72,
+};
+
 async function resolveTeamId(teamName) {
-  const url = new URL(`${SM_BASE}/teams/search/${encodeURIComponent(teamName)}`);
-  url.searchParams.set("api_token", SM_TOKEN);
-  url.searchParams.set("per_page", "5");
-  url.searchParams.set("select", "id,name,short_code");
-  const r = await fetch(url.toString());
-  if (!r.ok) return null;
-  const d = await r.json();
-  const teams = d.data ?? [];
-  if (!teams.length) return null;
-  // Chercher correspondance exacte d'abord
-  const exact = teams.find(t =>
-    t.name?.toLowerCase() === teamName.toLowerCase() ||
-    t.short_code?.toLowerCase() === teamName.toLowerCase()
-  );
-  return (exact ?? teams[0]).id;
+  if (TEAM_ID_CACHE.has(teamName)) return TEAM_ID_CACHE.get(teamName);
+
+  const leagueId = CLUB_LEAGUE_MAP[teamName] ?? 301;
+  try {
+    const url = new URL(`${SM_BASE}/teams`);
+    url.searchParams.set("api_token", SM_TOKEN);
+    url.searchParams.set("filters", `leagueId:${leagueId}`);
+    url.searchParams.set("per_page", "50");
+    url.searchParams.set("select", "id,name,short_code");
+
+    const r = await fetch(url.toString());
+    if (!r.ok) return null;
+    const d = await r.json();
+    const teams = d.data ?? [];
+
+    // Mettre en cache toutes les équipes de la ligue
+    for (const t of teams) {
+      if (t.name && !TEAM_ID_CACHE.has(t.name)) {
+        TEAM_ID_CACHE.set(t.name, t.id);
+      }
+    }
+
+    // Matching: exact → contains → short_code
+    const nameLower = teamName.toLowerCase();
+    const match = teams.find(t => t.name?.toLowerCase() === nameLower)
+      ?? teams.find(t => t.name?.toLowerCase().includes(nameLower) || nameLower.includes(t.name?.toLowerCase() ?? "__"))
+      ?? teams.find(t => t.short_code?.toLowerCase() === nameLower.replace(/[^a-z]/g,"").slice(0,3));
+
+    const id = match?.id ?? null;
+    if (id) TEAM_ID_CACHE.set(teamName, id);
+    return id;
+  } catch { return null; }
 }
 
 async function handleTeamHistory(req, res) {
@@ -350,16 +390,18 @@ module.exports = async function handler(req, res) {
     if (pathname === "api/team_history")       return await handleTeamHistory(req, res);
     if (pathname === "api/leagues")            return await handleLeagues(req, res);
     if (pathname === "api/team_search") {
-      const { name } = req.query;
+      const { name, league } = req.query;
       if (!name) return res.status(400).json({ error: "Missing name" });
-      const url = new URL(`${SM_BASE}/teams/search/${encodeURIComponent(name)}`);
+      const leagueId = league ?? (CLUB_LEAGUE_MAP[name] ?? 301);
+      const url = new URL(`${SM_BASE}/teams`);
       url.searchParams.set("api_token", SM_TOKEN);
-      url.searchParams.set("per_page", "5");
+      url.searchParams.set("filters", `leagueId:${leagueId}`);
+      url.searchParams.set("per_page", "50");
       url.searchParams.set("select", "id,name,short_code");
       const r = await fetch(url.toString());
       const d = await r.json();
       const id = await resolveTeamId(name);
-      return res.status(200).json({ resolvedId: id, teams: d.data ?? [] });
+      return res.status(200).json({ resolvedId: id, leagueId, teams: (d.data ?? []).map(t => ({ id: t.id, name: t.name, short_code: t.short_code })) });
     }
     if (pathname === "api/competitions_global") return handleCompetitionsGlobal(req, res);
     if (pathname === "api/stadiums_global")    return await handleStadiumsGlobal(req, res);
