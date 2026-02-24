@@ -7,7 +7,8 @@
  * Routes :
  *   GET /api/matches_global?competitionId=FD:2015&date=2026-02-24
  *   GET /api/livescores
- *   GET /api/team_history?teamId=123&startDate=2015-01-01&endDate=2025-01-01
+ *   GET /api/team_history?team=RC+Lens&dateFrom=2025-07-01&dateTo=2026-06-30
+ *   GET /api/team_history?teamId=2672&dateFrom=2025-07-01&dateTo=2026-06-30
  *   GET /api/leagues
  *   GET /api/competitions_global   (liste statique des compétitions supportées)
  *   GET /api/stadiums_global       (proxy vers staticDb / Wikidata)
@@ -187,17 +188,55 @@ async function handleLivescores(req, res) {
   return res.status(200).json({ matches });
 }
 
+// Résolution nom d'équipe → Sportmonks team ID
+async function resolveTeamId(teamName) {
+  const url = new URL(`${SM_BASE}/teams/search/${encodeURIComponent(teamName)}`);
+  url.searchParams.set("api_token", SM_TOKEN);
+  url.searchParams.set("per_page", "5");
+  url.searchParams.set("select", "id,name,short_code");
+  const r = await fetch(url.toString());
+  if (!r.ok) return null;
+  const d = await r.json();
+  const teams = d.data ?? [];
+  if (!teams.length) return null;
+  // Chercher correspondance exacte d'abord
+  const exact = teams.find(t =>
+    t.name?.toLowerCase() === teamName.toLowerCase() ||
+    t.short_code?.toLowerCase() === teamName.toLowerCase()
+  );
+  return (exact ?? teams[0]).id;
+}
+
 async function handleTeamHistory(req, res) {
-  const { teamId, startDate, endDate, page = "1" } = req.query;
-  if (!teamId || !startDate || !endDate) {
-    return res.status(400).json({ error: "Missing teamId, startDate or endDate" });
+  let { teamId, team, dateFrom, dateTo, startDate, endDate, page = "1" } = req.query;
+
+  // Compatibilité anciens params
+  dateFrom = dateFrom ?? startDate;
+  dateTo   = dateTo   ?? endDate;
+
+  if (!dateFrom || !dateTo) {
+    return res.status(400).json({ error: "Missing dateFrom/dateTo" });
   }
 
-  const url = new URL(`${SM_BASE}/fixtures/between/${startDate}/${endDate}/teams/${teamId}`);
+  // Résoudre l'ID si on a un nom
+  if (!teamId && team) {
+    teamId = await resolveTeamId(team);
+    if (!teamId) {
+      return res.status(404).json({ error: `Team not found: ${team}` });
+    }
+  }
+
+  if (!teamId) {
+    return res.status(400).json({ error: "Missing teamId or team name" });
+  }
+
+  const url = new URL(`${SM_BASE}/fixtures/between/${dateFrom}/${dateTo}/teams/${teamId}`);
   url.searchParams.set("api_token", SM_TOKEN);
-  url.searchParams.set("include", "participants;scores;league");
-  url.searchParams.set("per_page", "50");
+  url.searchParams.set("include", "participants;scores;state;league");
+  url.searchParams.set("per_page", "100");
   url.searchParams.set("page", page);
+  url.searchParams.set("order", "starting_at");
+  url.searchParams.set("sort", "desc");
 
   const r = await fetch(url.toString());
   if (!r.ok) return res.status(r.status).json({ error: await r.text() });
@@ -210,30 +249,49 @@ async function handleTeamHistory(req, res) {
     const home = participants.find(p => p.meta?.location === "home");
     const away = participants.find(p => p.meta?.location === "away");
     const scores = extractScores(f.scores ?? []);
+    const stateId = f.state?.id ?? f.state_id ?? null;
+    const status  = mapState(stateId);
 
     let result = null;
     const isHome = home?.id === Number(teamId);
     if (scores.fullTime.home !== null && scores.fullTime.away !== null) {
-      const goalsFor  = isHome ? scores.fullTime.home : scores.fullTime.away;
+      const goalsFor     = isHome ? scores.fullTime.home : scores.fullTime.away;
       const goalsAgainst = isHome ? scores.fullTime.away : scores.fullTime.home;
       result = goalsFor > goalsAgainst ? "W" : goalsFor < goalsAgainst ? "L" : "D";
     }
 
     return {
       id:      f.id,
-      date:    f.starting_at?.slice(0, 10) ?? null,
       utcDate: f.starting_at ? new Date(f.starting_at).toISOString() : null,
+      status,
       competition: { id: `SM:${f.league_id}`, name: f.league?.name ?? null },
-      venue:   null,
-      homeTeam: { id: home?.id ?? null, name: home?.name ?? "?", crest: home?.image_path ?? null },
-      awayTeam: { id: away?.id ?? null, name: away?.name ?? "?", crest: away?.image_path ?? null },
-      score:   { home: scores.fullTime.home, away: scores.fullTime.away },
+      homeTeam: {
+        id:    home?.id ?? null,
+        name:  home?.name ?? "?",
+        tla:   home?.short_code ?? null,
+        crest: home?.image_path ?? null,
+      },
+      awayTeam: {
+        id:    away?.id ?? null,
+        name:  away?.name ?? "?",
+        tla:   away?.short_code ?? null,
+        crest: away?.image_path ?? null,
+      },
+      score: {
+        fullTime: { home: scores.fullTime.home, away: scores.fullTime.away },
+        halfTime: { home: scores.halfTime.home, away: scores.halfTime.away },
+      },
       result,
     };
   });
 
   res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=600");
-  return res.status(200).json({ matches, hasMore: data.pagination?.has_more ?? false, page: Number(page) });
+  return res.status(200).json({
+    matches,
+    teamId: Number(teamId),
+    hasMore: data.pagination?.has_more ?? false,
+    page: Number(page),
+  });
 }
 
 async function handleLeagues(req, res) {
