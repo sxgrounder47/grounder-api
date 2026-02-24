@@ -16,19 +16,36 @@
 const SM_TOKEN = process.env.SPORTMONKS_TOKEN || "ZCYsAeTUx6YP8phj1J0QsWL9ErxXmDl1DhKS6GfAXu3xyQBpXWguhyZG1aYH";
 const SM_BASE  = "https://api.sportmonks.com/v3/football";
 
-// ─── Mapping FD: IDs → Sportmonks league IDs ─────────────────────────────────
-// Vérifie avec /api/leagues après déploiement pour corriger si besoin
+// ─── Mapping FD: IDs → Sportmonks league IDs (vérifié via /api/leagues) ──────
 const LEAGUE_MAP = {
+  // Ligues principales
   "FD:2015": 301,   // Ligue 1
-  "FD:2021": 8,     // Premier League
+  "FD:2021": 8,     // Premier League (England)
   "FD:2002": 82,    // Bundesliga
   "FD:2014": 564,   // La Liga
   "FD:2019": 384,   // Serie A
-  "FD:2001": 2,     // UEFA Champions League
-  "FD:2146": 5,     // UEFA Europa League
   "FD:2003": 72,    // Eredivisie
-  "FD:2016": 1067,  // Championship
-  "FD:2013": 325,   // Brasileirão
+  "FD:2016": 9,     // Championship
+  "FD:2017": 462,   // Liga Portugal
+  // Coupes nationales
+  "FD:2055": 24,    // FA Cup
+  "FD:2056": 27,    // Carabao Cup
+  "FD:2099": 390,   // Coppa Italia
+  "FD:2079": 570,   // Copa Del Rey
+  // Autres ligues européennes
+  "SM:181":  181,   // Admiral Bundesliga (Autriche)
+  "SM:208":  208,   // Pro League (Belgique)
+  "SM:244":  244,   // 1. HNL (Croatie)
+  "SM:271":  271,   // Superliga (Danemark)
+  "SM:387":  387,   // Serie B (Italie)
+  "SM:444":  444,   // Eliteserien (Norvège)
+  "SM:453":  453,   // Ekstraklasa (Pologne)
+  "SM:486":  486,   // Premier League (Russie/autre)
+  "SM:501":  501,   // Premiership (Écosse)
+  "SM:567":  567,   // La Liga 2
+  "SM:573":  573,   // Allsvenskan (Suède)
+  "SM:591":  591,   // Super League (Suisse)
+  "SM:600":  600,   // Super Lig (Turquie)
 };
 
 const LEAGUE_NAMES = {
@@ -37,11 +54,26 @@ const LEAGUE_NAMES = {
   "FD:2002": "Bundesliga",
   "FD:2014": "La Liga",
   "FD:2019": "Serie A",
-  "FD:2001": "Champions League",
-  "FD:2146": "Europa League",
   "FD:2003": "Eredivisie",
   "FD:2016": "Championship",
-  "FD:2013": "Brasileirão",
+  "FD:2017": "Liga Portugal",
+  "FD:2055": "FA Cup",
+  "FD:2056": "Carabao Cup",
+  "FD:2099": "Coppa Italia",
+  "FD:2079": "Copa Del Rey",
+  "SM:181":  "Bundesliga (AUT)",
+  "SM:208":  "Pro League",
+  "SM:244":  "1. HNL",
+  "SM:271":  "Superliga",
+  "SM:387":  "Serie B",
+  "SM:444":  "Eliteserien",
+  "SM:453":  "Ekstraklasa",
+  "SM:486":  "Premier League (SCO/RUS)",
+  "SM:501":  "Premiership",
+  "SM:567":  "La Liga 2",
+  "SM:573":  "Allsvenskan",
+  "SM:591":  "Super League",
+  "SM:600":  "Super Lig",
 };
 
 // ─── Helpers Sportmonks ───────────────────────────────────────────────────────
