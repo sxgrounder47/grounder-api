@@ -125,7 +125,7 @@ function transformFixture(f, competitionId) {
     utcDate: f.starting_at ? new Date(f.starting_at).toISOString() : null,
     status:  mapState(f.state_id),
     minute:  f.minute ?? null,
-    venue:   f.venue ? { name: f.venue.name ?? null } : null,
+    venue:   null,
     competition: {
       id:   competitionId ?? `SM:${f.league_id}`,
       name: LEAGUE_NAMES[competitionId] ?? f.league?.name ?? null,
@@ -157,7 +157,7 @@ async function handleMatchesGlobal(req, res) {
 
   const url = new URL(`${SM_BASE}/fixtures/date/${date}`);
   url.searchParams.set("api_token", SM_TOKEN);
-  url.searchParams.set("include", "participants;scores;venue;state");
+  url.searchParams.set("include", "participants;scores;state");
   url.searchParams.set("filters", `fixtureLeagues:${leagueId}`);
   url.searchParams.set("per_page", "50");
 
@@ -174,7 +174,7 @@ async function handleMatchesGlobal(req, res) {
 async function handleLivescores(req, res) {
   const url = new URL(`${SM_BASE}/livescores/inplay`);
   url.searchParams.set("api_token", SM_TOKEN);
-  url.searchParams.set("include", "participants;scores;league;venue;state");
+  url.searchParams.set("include", "participants;scores;league;state");
   url.searchParams.set("per_page", "100");
 
   const r = await fetch(url.toString());
@@ -195,7 +195,7 @@ async function handleTeamHistory(req, res) {
 
   const url = new URL(`${SM_BASE}/fixtures/between/${startDate}/${endDate}/teams/${teamId}`);
   url.searchParams.set("api_token", SM_TOKEN);
-  url.searchParams.set("include", "participants;scores;venue;league");
+  url.searchParams.set("include", "participants;scores;league");
   url.searchParams.set("per_page", "50");
   url.searchParams.set("page", page);
 
@@ -224,7 +224,7 @@ async function handleTeamHistory(req, res) {
       date:    f.starting_at?.slice(0, 10) ?? null,
       utcDate: f.starting_at ? new Date(f.starting_at).toISOString() : null,
       competition: { id: `SM:${f.league_id}`, name: f.league?.name ?? null },
-      venue:   f.venue ? { name: f.venue.name } : null,
+      venue:   null,
       homeTeam: { id: home?.id ?? null, name: home?.name ?? "?", crest: home?.image_path ?? null },
       awayTeam: { id: away?.id ?? null, name: away?.name ?? "?", crest: away?.image_path ?? null },
       score:   { home: scores.fullTime.home, away: scores.fullTime.away },
