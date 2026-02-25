@@ -264,20 +264,31 @@ async function handleTeamHistory(req, res) {
     cursor.setDate(cursor.getDate() + 1);
   }
 
+  // URL format vérifié: /fixtures/between/{from}/{to}/{teamId}
+
   const chunkResults = await Promise.all(chunks.map(async ([from, to]) => {
-    const u = new URL(`${SM_BASE}/fixtures/between/${from}/${to}`);
-    u.searchParams.set("api_token", SM_TOKEN);
-    u.searchParams.set("filters", `teamId:${teamId}`);
-    u.searchParams.set("include", "participants;scores;state;league");
-    u.searchParams.set("per_page", "100");
-    u.searchParams.set("sort", "desc");
-    const r = await fetch(u.toString());
-    if (!r.ok) {
-      if (r.status === 404) return [];
-      throw new Error(`${r.status}: ${await r.text()}`);
+    const allPages = [];
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+      const u = new URL(`${SM_BASE}/fixtures/between/${from}/${to}/${teamId}`);
+      u.searchParams.set("api_token", SM_TOKEN);
+      u.searchParams.set("include", "participants;scores;state;league");
+      u.searchParams.set("per_page", "100");
+      u.searchParams.set("page", String(page));
+      const r = await fetch(u.toString());
+      if (!r.ok) {
+        if (r.status === 404) break;
+        throw new Error(`${r.status}: ${await r.text()}`);
+      }
+      const d = await r.json();
+      const fixtures = d.data ?? [];
+      allPages.push(...fixtures);
+      hasMore = d.pagination?.has_more ?? false;
+      page++;
+      if (fixtures.length === 0) break;
     }
-    const d = await r.json();
-    return d.data ?? [];
+    return allPages;
   }));
 
   const fixtures = chunkResults.flat();
