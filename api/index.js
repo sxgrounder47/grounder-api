@@ -14,7 +14,7 @@
  *   GET /api/stadiums_global       (proxy vers staticDb / Wikidata)
  */
 
-const SM_TOKEN = process.env.SPORTMONKS_TOKEN || "ZCYsAeTUx6YP8phj1J0QsWL9ErxXmDl1DhKS6GfAXu3xyQBpXWguhyZG1aYH";
+const SM_TOKEN = process.env.SPORTMONKS_TOKEN || "V7imvWbLaBsOlqcA2rFVfQvfMoaXUGqxSlkCPnVZjgJl5KPGfnUqalUX0Qzv";
 const SM_BASE  = "https://api.sportmonks.com/v3/football";
 
 // ─── Mapping FD: IDs → Sportmonks league IDs (vérifié via /api/leagues) ──────
