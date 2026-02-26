@@ -17,6 +17,10 @@
 const SM_TOKEN = process.env.SPORTMONKS_TOKEN || "V7imvWbLaBsOlqcA2rFVfQvfMoaXUGqxSlkCPnVZjgJl5KPGfnUqalUX0Qzv";
 const SM_BASE  = "https://api.sportmonks.com/v3/football";
 
+// ─── API-Football (fallback pour team_history) ────────────────────────────────
+const AF_TOKEN = process.env.API_FOOTBALL_TOKEN || "";
+const AF_BASE  = "https://v3.football.api-sports.io";
+
 // ─── Mapping FD: IDs → Sportmonks league IDs (vérifié via /api/leagues) ──────
 const LEAGUE_MAP = {
   // Ligues principales
@@ -229,119 +233,138 @@ function resolveTeamId(teamName) {
 }
 
 async function handleTeamHistory(req, res) {
-  let { teamId, team, dateFrom, dateTo, startDate, endDate, page = "1" } = req.query;
+  let { teamId, team, dateFrom, dateTo, season, page = "1" } = req.query;
 
-  // Compatibilité anciens params
-  dateFrom = dateFrom ?? startDate;
-  dateTo   = dateTo   ?? endDate;
-
-  if (!dateFrom || !dateTo) {
-    return res.status(400).json({ error: "Missing dateFrom/dateTo" });
-  }
-
-  // Résoudre l'ID si on a un nom
+  // Résoudre teamId depuis le nom si nécessaire
   if (!teamId && team) {
-    teamId = await resolveTeamId(team);
-    if (!teamId) {
-      return res.status(404).json({ error: `Team not found: ${team}` });
-    }
+    teamId = SM_TEAM_IDS[team] ?? null;
+    if (!teamId) return res.status(404).json({ error: `Team not found: ${team}` });
   }
+  if (!teamId) return res.status(400).json({ error: "Missing teamId or team" });
 
-  if (!teamId) {
-    return res.status(400).json({ error: "Missing teamId or team name" });
-  }
+  // Déterminer la saison depuis dateFrom ou param direct
+  // API-Football: /fixtures?team=X&season=YYYY (une saison entière en 1 appel)
+  const seasonYear = season
+    ? String(season)
+    : dateFrom
+      ? String(new Date(dateFrom).getFullYear() - (new Date(dateFrom).getMonth() < 6 ? 1 : 0))
+      : String(new Date().getFullYear());
 
-  // Sportmonks limite à 100 jours — on splitte en chunks de 90j et on appelle en parallèle
-  const chunks = [];
-  let cursor = new Date(dateFrom);
-  const endDateObj = new Date(dateTo);
-  while (cursor < endDateObj) {
-    const chunkEnd = new Date(cursor);
-    chunkEnd.setDate(chunkEnd.getDate() + 89);
-    if (chunkEnd > endDateObj) chunkEnd.setTime(endDateObj.getTime());
-    chunks.push([cursor.toISOString().slice(0, 10), chunkEnd.toISOString().slice(0, 10)]);
-    cursor = new Date(chunkEnd);
-    cursor.setDate(cursor.getDate() + 1);
-  }
+  // Mapping SM teamId → AF teamId (à affiner si divergences)
+  // Pour l'instant on utilise un mapping AF vérifié pour la Ligue 1
+  const AF_TEAM_MAP = {
+    591: 85,   // PSG
+    44:  81,   // OM
+    79:  80,   // OL
+    271: 116,  // RC Lens
+    690: 79,   // Lille
+    598: 97,   // Rennes
+    450: 84,   // Nice
+    6789:91,   // Monaco
+    59:  83,   // Nantes
+    686: 95,   // Strasbourg
+    289: 94,   // Toulouse
+    266: 113,  // Brest
+    1055:111,  // Le Havre
+    776: 106,  // Angers
+    9257:112,  // Lorient
+    3682:108,  // Auxerre
+    // PL
+    14:  33,   // Man Utd
+    9:   50,   // Man City
+    8:   40,   // Liverpool
+    2:   42,   // Arsenal
+    3:   49,   // Chelsea
+    6:   47,   // Tottenham
+    21:  66,   // Aston Villa
+    17:  34,   // Newcastle
+    // Bundesliga
+    396: 157,  // Bayern
+    394: 165,  // Dortmund
+    393: 168,  // Leverkusen
+    // La Liga
+    732: 541,  // Real Madrid
+    83:  529,  // Barcelona
+    80:  530,  // Atletico
+    // Serie A
+    3024:489,  // AC Milan
+    3025:505,  // Inter
+    3026:496,  // Juventus
+    3031:492,  // Napoli
+  };
 
-  // URL format vérifié: /fixtures/between/{from}/{to}/{teamId}
+  const afTeamId = AF_TEAM_MAP[Number(teamId)] ?? Number(teamId);
 
-  const chunkResults = await Promise.all(chunks.map(async ([from, to]) => {
-    const allPages = [];
-    let page = 1;
-    let hasMore = true;
-    while (hasMore) {
-      const u = new URL(`${SM_BASE}/fixtures/between/${from}/${to}/${teamId}`);
-      u.searchParams.set("api_token", SM_TOKEN);
-      u.searchParams.set("include", "participants;scores;state;league");
-      u.searchParams.set("per_page", "100");
-      u.searchParams.set("page", String(page));
-      const r = await fetch(u.toString());
-      if (!r.ok) {
-        if (r.status === 404) break;
-        throw new Error(`${r.status}: ${await r.text()}`);
-      }
-      const d = await r.json();
-      const fixtures = d.data ?? [];
-      allPages.push(...fixtures);
-      hasMore = d.pagination?.has_more ?? false;
-      page++;
-      if (fixtures.length === 0) break;
-    }
-    return allPages;
-  }));
+  const url = new URL(`${AF_BASE}/fixtures`);
+  url.searchParams.set("team", String(afTeamId));
+  url.searchParams.set("season", seasonYear);
 
-  const fixtures = chunkResults.flat();
+  const r = await fetch(url.toString(), {
+    headers: {
+      "x-rapidapi-key": AF_TOKEN,
+      "x-rapidapi-host": "v3.football.api-sports.io",
+    },
+  });
+
+  if (!r.ok) return res.status(r.status).json({ error: await r.text() });
+
+  const data = await r.json();
+  const fixtures = data.response ?? [];
 
   const matches = fixtures.map(f => {
-    const participants = f.participants ?? [];
-    const home = participants.find(p => p.meta?.location === "home");
-    const away = participants.find(p => p.meta?.location === "away");
-    const scores = extractScores(f.scores ?? []);
-    const stateId = f.state?.id ?? f.state_id ?? null;
-    const status  = mapState(stateId);
+    const home = f.teams?.home;
+    const away = f.teams?.away;
+    const goals = f.goals;
+    const status = f.fixture?.status?.short;
+
+    const isFinished = ["FT","AET","PEN"].includes(status);
+    const isHome = home?.id === afTeamId;
 
     let result = null;
-    const isHome = home?.id === Number(teamId);
-    if (scores.fullTime.home !== null && scores.fullTime.away !== null) {
-      const goalsFor     = isHome ? scores.fullTime.home : scores.fullTime.away;
-      const goalsAgainst = isHome ? scores.fullTime.away : scores.fullTime.home;
-      result = goalsFor > goalsAgainst ? "W" : goalsFor < goalsAgainst ? "L" : "D";
+    if (isFinished && goals?.home !== null && goals?.away !== null) {
+      const gf = isHome ? goals.home : goals.away;
+      const ga = isHome ? goals.away : goals.home;
+      result = gf > ga ? "W" : gf < ga ? "L" : "D";
     }
 
+    const apiStatus = isFinished ? "FINISHED"
+      : ["1H","2H","HT","ET","BT","P","LIVE"].includes(status) ? "IN_PLAY"
+      : status === "PST" ? "POSTPONED"
+      : status === "CANC" ? "CANCELLED"
+      : "SCHEDULED";
+
     return {
-      id:      f.id,
-      utcDate: f.starting_at ? new Date(f.starting_at).toISOString() : null,
-      status,
-      competition: { id: `SM:${f.league_id}`, name: f.league?.name ?? null },
+      id:      f.fixture?.id,
+      utcDate: f.fixture?.date ?? null,
+      status:  apiStatus,
+      competition: {
+        id:   `AF:${f.league?.id}`,
+        name: f.league?.name ?? null,
+      },
       homeTeam: {
         id:    home?.id ?? null,
         name:  home?.name ?? "?",
-        tla:   home?.short_code ?? null,
-        crest: home?.image_path ?? null,
+        tla:   null,
+        crest: home?.logo ?? null,
       },
       awayTeam: {
         id:    away?.id ?? null,
         name:  away?.name ?? "?",
-        tla:   away?.short_code ?? null,
-        crest: away?.image_path ?? null,
+        tla:   null,
+        crest: away?.logo ?? null,
       },
       score: {
-        fullTime: { home: scores.fullTime.home, away: scores.fullTime.away },
-        halfTime: { home: scores.halfTime.home, away: scores.halfTime.away },
+        fullTime: { home: goals?.home ?? null, away: goals?.away ?? null },
+        halfTime: { home: f.score?.halftime?.home ?? null, away: f.score?.halftime?.away ?? null },
       },
       result,
     };
-  });
+  }).sort((a, b) => new Date(b.utcDate) - new Date(a.utcDate));
 
   res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=600");
-  return res.status(200).json({
-    matches,
-    teamId: Number(teamId),
-    hasMore: false,
-    page: Number(page),
-  });
+  return res.status(200).json({ matches, teamId: Number(teamId), season: seasonYear });
 }
+
 
 async function handleLeagues(req, res) {
   const url = new URL(`${SM_BASE}/leagues`);
