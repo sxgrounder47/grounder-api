@@ -433,6 +433,32 @@ module.exports = async function handler(req, res) {
         teams: teams.sort((a,b) => (a.name ?? "").localeCompare(b.name ?? "")),
       });
     }
+    if (pathname === "api/af_debug") {
+      const { team, season } = req.query;
+      const url = new URL(`${AF_BASE}/fixtures`);
+      url.searchParams.set("team", team ?? "83");
+      url.searchParams.set("season", season ?? "2025");
+      const r = await fetch(url.toString(), {
+        headers: {
+          "x-rapidapi-key": AF_TOKEN,
+          "x-rapidapi-host": "v3.football.api-sports.io",
+        },
+      });
+      const d = await r.json();
+      return res.status(r.status).json({
+        af_token_set: !!AF_TOKEN,
+        af_token_prefix: AF_TOKEN ? AF_TOKEN.slice(0,8) + "..." : "MISSING",
+        status: r.status,
+        results: d.results ?? 0,
+        errors: d.errors,
+        sample: (d.response ?? []).slice(0,2).map(f => ({
+          id: f.fixture?.id,
+          date: f.fixture?.date,
+          home: f.teams?.home?.name,
+          away: f.teams?.away?.name,
+        })),
+      });
+    }
     if (pathname === "api/competitions_global") return handleCompetitionsGlobal(req, res);
     if (pathname === "api/stadiums_global")    return await handleStadiumsGlobal(req, res);
 
